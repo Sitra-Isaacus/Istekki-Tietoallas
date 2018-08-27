@@ -1,0 +1,66 @@
+{
+  "$schema": "http://schema.management.azure.com/schemas/2015-01-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "WorkspaceName": {
+      "value": "{{ workspace_name }}"
+    },
+    "ResourceGroupWorkspaceAbbreviation": {
+      "value": "{{ adls_name }}"
+    },
+    "MainResGroupName": {
+      "value": "{{ main_res_group }}"
+    },
+    "NetworkResGroupName": {
+      "value": "{{ network_res_group }}"
+    },
+    "SubnetCIDR": {
+     "value": "{{ subnet_cidr }}"
+    },
+     "ManagementSubnetCIDR": {
+      "value": "{{ management_subnet_cidr }}"
+    },
+    "IntegrationSubnetCIDR": {
+      "value": "{{ integration_subnet_cidr }}"
+    },
+    "HeadNodeSize": {
+      "value": "{{ hdinsight_headnode_size }}"
+    },
+    "WorkerNodeSize": {
+      "value": "{{ hdinsight_workernode_size }}"
+    },
+    "WorkerInstanceCount": {
+      "value": {{ hdinsight_workernode_count }}
+    },
+    "DBlogin": {
+      "value": "{{ db_admin }}"
+    },
+    "DBpwd": {
+      "value": "{{ db_admin_pwd }}"
+    },
+    "AdminLogin": {
+      "value": "{{ admin_name }}"
+    },
+    "AdminPassword": {
+      "value": "{{ hdinsight_admin_pwd }}"
+    },
+    "AdminSSHKey": {
+      "value": "{{ admin_ssh_key }}"
+    },
+    "NetworkName": {
+      "value": "{{ vnet_name }}"
+    },
+    "AdTenantId": {
+      "value": "{{ ad_tenant_id }}"
+    },
+    "ServicePrincipalApplicationId": {
+      "value": "{{ sp_application_id }}"
+    },
+    "ServicePrincipalCertificateContents": {
+      "value": "{{ sp_certificate_content }}"
+    },
+    "ServicePrincipalCertificatePassword": {
+      "value": "{{ adls_sp_pwd }}"
+    }
+  }
+}

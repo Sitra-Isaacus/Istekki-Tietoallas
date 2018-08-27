@@ -1,0 +1,392 @@
+{
+    "$schema": "http://schema.management.azure.com/schemas/2014-04-01-preview/deploymentTemplate.json#",
+    "contentVersion": "0.9.0.0",
+    "parameters": {
+        "WorkspaceName": {
+            "type": "string"
+        },
+        "ResourceGroupWorkspaceAbbreviation": {
+            "type": "string"
+        },
+        "MainResGroupName": {
+            "type": "string"
+        },
+        "NetworkResGroupName": {
+            "type": "string"
+        },
+        "SubnetCIDR": {
+            "type": "string"
+        },
+        "ManagementSubnetCIDR": {
+            "type": "string"
+        },
+        "IntegrationSubnetCIDR": {
+            "type": "string"
+        },
+        "HeadNodeSize": {
+            "type": "string"
+        },
+        "WorkerNodeSize": {
+            "type": "string"
+        },
+        "WorkerInstanceCount": {
+            "type": "int"
+        },
+        "DBlogin": {
+            "type": "string"
+        },
+        "DBpwd": {
+            "type": "securestring"
+        },
+        "AdminLogin": {
+            "type": "string"
+        },
+        "AdminPassword": {
+            "type": "securestring"
+        },
+        "AdminSSHKey": {
+            "type": "string"
+        },
+        "NetworkName": {
+            "type": "string"
+        },
+        "AdTenantId": {
+			"type": "string",
+			"metadata": {
+				"description": "The tenant ID (guid) of the Azure Active Directory (AAD) tenant where the service principal resides."
+			}
+		},
+		"ServicePrincipalApplicationId": {
+			"type": "string",
+			"metadata": {
+				"description": "The AAD application ID (guid) of the service principal that represents the HDInsight cluster. The service principal will be given permissions on the root folder of the Data Lake Store account."
+			}
+		},
+		"ServicePrincipalCertificateContents": {
+			"type": "securestring",
+			"metadata": {
+				"description": "The base-64-encoded contents of the PFX certificate file that can be used to authenticate as the service principal that represents the HDInsight cluster."
+			}
+		},
+		"ServicePrincipalCertificatePassword": {
+			"type": "securestring",
+			"metadata": {
+				"description": "The password securing the PFX certificate file that can be used to authenticate as the service principal that represents the HDInsight cluster."
+			}
+		}
+    },
+    "variables": {
+        "DBServerName": "[concat(parameters('MainResGroupName'), '-db')]",
+        "OozieDBName": "[parameters('WorkspaceName')]",
+        "HIveMetadataDBName": "[parameters('WorkspaceName')]",
+        "HDInsightName": "[concat(parameters('WorkspaceName'), '-', resourceGroup().name, '-hd')]",
+        "SubnetName": "[concat(resourceGroup().name, '-sn')]",
+        "NetworkSecurityGroupName": "[concat(resourceGroup().name, '-nsg')]",
+
+        "VNetId": "[resourceId(parameters('NetworkResGroupName'), 'Microsoft.Network/virtualNetworks', parameters('NetworkName'))]",
+        "SubnetId": "[concat(variables('VNetId'), '/subnets/', variables('SubnetName'))]",
+        "ClusterVersion": "3.6"
+    },
+    "resources": [
+        {
+            "name": "[variables('NetworkSecurityGroupName')]",
+            "type": "Microsoft.Network/networkSecurityGroups",
+            "location": "[resourceGroup().location]",
+            "apiVersion": "2015-06-15",
+            "dependsOn": [],
+            "properties": {
+                "securityRules": [
+                    {
+                        "name": "allow-hdi-man1",
+                        "properties": {
+                            "protocol": "*",
+                            "sourcePortRange": "*",
+                            "destinationPortRange": "443",
+                            "sourceAddressPrefix": "168.61.49.99",
+                            "destinationAddressPrefix": "VirtualNetwork",
+                            "access": "Allow",
+                            "priority": 100,
+                            "direction": "Inbound"
+                        }
+                    },
+                    {
+                        "name": "allow-hdi-man2",
+                        "properties": {
+                            "protocol": "*",
+                            "sourcePortRange": "*",
+                            "destinationPortRange": "443",
+                            "sourceAddressPrefix": "23.99.5.239",
+                            "destinationAddressPrefix": "VirtualNetwork",
+                            "access": "Allow",
+                            "priority": 101,
+                            "direction": "Inbound"
+                        }
+                    },
+                    {
+                        "name": "allow-hdi-man3",
+                        "properties": {
+                            "protocol": "*",
+                            "sourcePortRange": "*",
+                            "destinationPortRange": "443",
+                            "sourceAddressPrefix": "168.61.48.131",
+                            "destinationAddressPrefix": "VirtualNetwork",
+                            "access": "Allow",
+                            "priority": 102,
+                            "direction": "Inbound"
+                        }
+                    },
+                    {
+                        "name": "allow-hdi-man4",
+                        "properties": {
+                            "protocol": "*",
+                            "sourcePortRange": "*",
+                            "destinationPortRange": "443",
+                            "sourceAddressPrefix": "138.91.141.162",
+                            "destinationAddressPrefix": "VirtualNetwork",
+                            "access": "Allow",
+                            "priority": 103,
+                            "direction": "Inbound"
+                        }
+                    },
+                    {
+                        "name": "allow-hdi-man5",
+                        "properties": {
+                            "protocol": "*",
+                            "sourcePortRange": "*",
+                            "destinationPortRange": "443",
+                            "sourceAddressPrefix": "52.164.210.96",
+                            "destinationAddressPrefix": "VirtualNetwork",
+                            "access": "Allow",
+                            "priority": 104,
+                            "direction": "Inbound"
+                        }
+                    },
+                    {
+                        "name": "allow-hdi-man6",
+                        "properties": {
+                            "protocol": "*",
+                            "sourcePortRange": "*",
+                            "destinationPortRange": "443",
+                            "sourceAddressPrefix": "13.74.153.132",
+                            "destinationAddressPrefix": "VirtualNetwork",
+                            "access": "Allow",
+                            "priority": 105,
+                            "direction": "Inbound"
+                        }
+                    },
+                    {
+                        "name": "allow-http-vnet",
+                        "properties": {
+                            "protocol": "*",
+                            "sourcePortRange": "*",
+                            "destinationPortRange": "443",
+                            "sourceAddressPrefix": "VirtualNetwork",
+                            "destinationAddressPrefix": "*",
+                            "access": "Allow",
+                            "priority": 200,
+                            "direction": "Inbound"
+                        }
+                    },
+                    {
+                        "name": "allow-ssh-vnet",
+                        "properties": {
+                            "protocol": "*",
+                            "sourcePortRange": "*",
+                            "destinationPortRange": "22",
+                            "sourceAddressPrefix": "VirtualNetwork",
+                            "destinationAddressPrefix": "*",
+                            "access": "Allow",
+                            "priority": 201,
+                            "direction": "Inbound"
+                        }
+                    },
+                    {
+                        "name": "allow-all-integration",
+                        "properties": {
+                            "protocol": "*",
+                            "sourcePortRange": "*",
+                            "destinationPortRange": "*",
+                            "sourceAddressPrefix": "[parameters('IntegrationSubnetCIDR')]",
+                            "destinationAddressPrefix": "*",
+                            "access": "Allow",
+                            "priority": 300,
+                            "direction": "Inbound"
+                        }
+                    },
+                    {
+                        "name": "allow-all-management",
+                        "properties": {
+                            "protocol": "*",
+                            "sourcePortRange": "*",
+                            "destinationPortRange": "*",
+                            "sourceAddressPrefix": "[parameters('ManagementSubnetCIDR')]",
+                            "destinationAddressPrefix": "*",
+                            "access": "Allow",
+                            "priority": 301,
+                            "direction": "Inbound"
+                        }
+                    },
+                    {
+                        "name": "allow-azure-lb",
+                        "properties": {
+                            "protocol": "*",
+                            "sourcePortRange": "*",
+                            "destinationPortRange": "*",
+                            "sourceAddressPrefix": "AzureLoadBalancer",
+                            "destinationAddressPrefix": "*",
+                            "access": "Allow",
+                            "priority": 106,
+                            "direction": "Inbound"
+                        }
+                    },
+                    {
+                        "name": "allow-all-this-segment",
+                        "properties": {
+                            "protocol": "*",
+                            "sourcePortRange": "*",
+                            "destinationPortRange": "*",
+                            "sourceAddressPrefix": "[parameters('SubnetCIDR')]",
+                            "destinationAddressPrefix": "[parameters('SubnetCIDR')]",
+                            "access": "Allow",
+                            "priority": 4095,
+                            "direction": "Inbound"
+                        }
+                    },
+                    {
+                        "name": "deny-all-from-vnet",
+                        "properties": {
+                            "protocol": "*",
+                            "sourcePortRange": "*",
+                            "destinationPortRange": "*",
+                            "sourceAddressPrefix": "VirtualNetwork",
+                            "destinationAddressPrefix": "*",
+                            "access": "Deny",
+                            "priority": 4096,
+                            "direction": "Inbound"
+                        }
+                    }
+                ]
+            }
+        },
+        {
+            "apiVersion": "2015-03-01-preview",
+            "name": "[variables('HDInsightName')]",
+            "type": "Microsoft.HDInsight/clusters",
+            "location": "[resourceGroup().location]",
+            "dependsOn": [
+            ],
+            "properties": {
+                "clusterVersion": "[variables('ClusterVersion')]",
+                "osType": "Linux",
+                "clusterDefinition": {
+                    "kind": "spark",
+                    "componentVersion": {
+                        "Spark": "2.1"
+                    },
+                    "configurations": {
+                        "gateway": {
+                            "restAuthCredential.isEnabled": true,
+                            "restAuthCredential.username": "[parameters('AdminLogin')]",
+                            "restAuthCredential.password": "[parameters('AdminPassword')]"
+                        },
+                        "core-site": {
+                            "fs.defaultFS":"adl://home",
+                            "dfs.adls.home.hostname": "[concat(parameters('ResourceGroupWorkspaceAbbreviation'), '.azuredatalakestore.net')]",
+                            "dfs.adls.home.mountpoint": "[concat('/clusters/', parameters('WorkspaceName'))]"
+                        },
+                        "clusterIdentity": {
+                            "clusterIdentity.applicationId": "[parameters('ServicePrincipalApplicationId')]",
+                            "clusterIdentity.certificate": "[parameters('ServicePrincipalCertificateContents')]",
+                            "clusterIdentity.certificatePassword": "[parameters('ServicePrincipalCertificatePassword')]",
+                            "clusterIdentity.aadTenantId": "[concat('https://login.windows.net/',parameters('AdTenantId'))]",
+                            "clusterIdentity.resourceUri": "https://management.core.windows.net/"
+                        },
+                        "hive-site": {
+                            "javax.jdo.option.ConnectionDriverName": "com.microsoft.sqlserver.jdbc.SQLServerDriver",
+                            "javax.jdo.option.ConnectionURL": "[concat('jdbc:sqlserver://', variables('DBServerName'), '.database.windows.net;database=',variables('HIveMetadataDBName'),';encrypt=true;trustServerCertificate=true;create=false;loginTimeout=300')]",
+                            "javax.jdo.option.ConnectionUserName": "[parameters('dblogin')]",
+                            "javax.jdo.option.ConnectionPassword": "[parameters('dbpwd')]"
+                        },
+                        "hive-env": {
+                            "hive_database": "Existing MSSQL Server database with SQL authentication",
+                            "hive_database_name": "[variables('HIveMetadataDBName')]",
+                            "hive_database_type": "mssql",
+                            "hive_existing_mssql_server_database": "[variables('HIveMetadataDBName')]",
+                            "hive_existing_mssql_server_host": "[concat(variables('DBServerName'), '.database.windows.net')]",
+                            "hive_hostname": "[concat(variables('DBServerName'), '.database.windows.net')]"
+                        },
+                        "oozie-site": {
+                            "oozie.service.JPAService.jdbc.driver": "com.microsoft.sqlserver.jdbc.SQLServerDriver",
+                            "oozie.service.JPAService.jdbc.url": "[concat('jdbc:sqlserver://', variables('DBServerName'), '.database.windows.net;database=',variables('OozieDBName'),';encrypt=true;trustServerCertificate=true;create=false;loginTimeout=300')]",
+                            "oozie.service.JPAService.jdbc.username": "[parameters('dblogin')]",
+                            "oozie.service.JPAService.jdbc.password": "[parameters('dbpwd')]",
+                            "oozie.db.schema.name": "oozie"
+                        },
+                        "oozie-env": {
+                            "oozie_database": "Existing MSSQL Server database with SQL authentication",
+                            "oozie_database_name": "[variables('OozieDBName')]",
+                            "oozie_database_type": "mssql",
+                            "oozie_existing_mssql_server_database": "[variables('OozieDBName')]",
+                            "oozie_existing_mssql_server_host": "[concat(variables('DBServerName'), '.database.windows.net')]",
+                            "oozie_hostname": "[concat(variables('DBServerName'), '.database.windows.net')]"
+                        }
+                    }
+                },
+                "computeProfile": {
+                    "roles": [
+                        {
+                            "name": "headnode",
+                            "minInstanceCount": 1,
+                            "targetInstanceCount": 2,
+                            "hardwareProfile": {
+                                "vmSize": "[parameters('HeadNodeSize')]"
+                            },
+                            "osProfile": {
+                                "linuxOperatingSystemProfile": {
+                                    "username": "[parameters('AdminLogin')]",
+                                    "sshProfile": {
+                                        "publicKeys": [
+                                            {
+                                                "certificateData": "[parameters('AdminSSHKey')]"
+                                            }
+                                        ]
+                                    }
+                                }
+                            },
+                            "virtualNetworkProfile": {
+                                "id": "[variables('VNetId')]",
+                                "subnet": "[variables('SubnetId')]"
+                            },
+                            "scriptActions": []
+                        },
+                        {
+                            "name": "workernode",
+                            "minInstanceCount": 1,
+                            "targetInstanceCount": "[parameters('WorkerInstanceCount')]",
+                            "hardwareProfile": {
+                                "vmSize": "[parameters('WorkerNodeSize')]"
+                            },
+                            "osProfile": {
+                                "linuxOperatingSystemProfile": {
+                                    "username": "[parameters('AdminLogin')]",
+                                    "sshProfile": {
+                                        "publicKeys": [
+                                            {
+                                                "certificateData": "[parameters('AdminSSHKey')]"
+                                            }
+                                        ]
+                                    }
+                                }
+                            },
+                            "virtualNetworkProfile": {
+                                "id": "[variables('VNetId')]",
+                                "subnet": "[variables('SubnetId')]"
+                            },
+                            "scriptActions": []
+                        }
+                    ]
+                }
+            }
+        }
+    ]
+}
