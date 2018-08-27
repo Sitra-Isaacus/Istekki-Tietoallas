@@ -1,0 +1,288 @@
+USE [#TIETOKANTA#]
+GO
+/****** Object:  StoredProcedure [dbo].[ALLAS_4_Luo_SSIS_komennot]    Script Date: 21.8.2018 17.25.25 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+
+
+
+-- =============================================
+-- Original author:		Heikki M
+-- v2: Mika R
+-- Create date: 17.5.2017
+-- Description:	Luodaan metadatanpohjalta SSIS-komennot
+-- =============================================
+ALTER PROCEDURE [dbo].[ALLAS_4_Luo_SSIS_komennot] @SOURCE nvarchar(15)
+AS
+BEGIN
+	-- SET NOCOUNT ON added to prevent extra result sets from
+	-- interfering with SELECT statements.
+	SET NOCOUNT ON;
+
+    -- Insert statements for procedure here
+
+TRUNCATE TABLE #TIETOKANTA#.dbo.SSIS_komennot_ja_kohteet
+
+DECLARE @KOMENTO NVARCHAR (max)
+DECLARE @TAULU NVARCHAR (200)
+DECLARE @SIJAINTI_ADLS NVARCHAR (300)
+DECLARE @SIJAINTI_DB nvarchar(300)
+DECLARE @ORIGINAL_SOURCE nvarchar(300)
+DECLARE @PSEUDO_M nvarchar(100)
+
+DECLARE @SARAKE NVARCHAR (50)
+DECLARE @SENSITIVE INT 
+DECLARE @SARAKE_TMP NVARCHAR (500)
+DECLARE @PILKKU NVARCHAR (1)
+
+DECLARE @SARAKE_LKM INT
+DECLARE @SARAKE_LKM_LUOTAVIEN_MAARA int
+DECLARE @TAULU_LKM INT
+
+-- 2 = hetu , 4 = potnro
+DECLARE @PSEUDO_MODE INT
+SET @PSEUDO_MODE = 0
+DECLARE @PSEUDO_SARAKE nvarchar(30)
+DECLARE @Pseudonyymi_taulu INT = 0, @Potilasnumero_taulu INT = 0
+DECLARE @Riveja INT
+
+	
+set @SARAKE_LKM_LUOTAVIEN_MAARA = 160	-- Määrätäänkin suoraan, parempi SSIS:n kannalta
+
+
+SET @TAULU_LKM = 0
+
+DECLARE TAULUT CURSOR FOR 
+		SELECT DISTINCT DATATABLE, LOCATION_ADLS, [SOURCE], ORIGINAL_SOURCE
+		FROM [#TIETOKANTA#].[DBO].[Metadata] WHERE ORIGINAL_SOURCE = @SOURCE 
+
+OPEN TAULUT
+
+FETCH NEXT FROM TAULUT
+INTO @TAULU, @SIJAINTI_ADLS, @SIJAINTI_DB, @ORIGINAL_SOURCE
+
+/*Poistetaan taulun column col kääntö pois tässä ja tuodaan uutta tilalle*/
+DELETE FROM #TIETOKANTA#.dbo.Column_Col_Kaanto WHERE TABLE_SOURCE = @SIJAINTI_DB AND ORIGINAL_SOURCE = @ORIGINAL_SOURCE
+
+
+
+
+
+WHILE @@FETCH_STATUS = 0 
+BEGIN
+
+
+/*Tehdään tässä otsikkorivi ekaksi*/
+				DECLARE OTSIKKORIVI CURSOR FOR 
+							SELECT DATACOLUMN
+							FROM [#TIETOKANTA#].[DBO].[Metadata] 
+							WHERE DATATABLE = @TAULU
+					SET @SARAKE_LKM = 1			
+					SET @KOMENTO = 'SELECT ' 
+	
+					OPEN OTSIKKORIVI
+
+					FETCH NEXT FROM OTSIKKORIVI
+					INTO @SARAKE
+
+
+					WHILE @@FETCH_STATUS = 0 
+					BEGIN
+
+						SET @KOMENTO = @KOMENTO + ''''+ @SARAKE +''' AS COL' + CAST(@SARAKE_LKM AS nvarchar(5)) +', '
+
+						SET @SARAKE_LKM = @SARAKE_LKM + 1
+
+						FETCH NEXT FROM OTSIKKORIVI
+						INTO @SARAKE
+					END
+					CLOSE OTSIKKORIVI
+					DEALLOCATE OTSIKKORIVI
+					/*otetaan viimeinen pilkku pois*/
+					SET @KOMENTO = LEFT(@KOMENTO,LEN(@KOMENTO)-1)
+
+					/*Luodaan myös otsikkoriville tyhjät sarakkeet. Tämä on aikamoinen purkka ylipäätään, kun SSISSIÄ varten pitää luoda
+					tyhjiä sarakkeita, että on aina vakiomäärä.
+					*/
+					--WHILE @SARAKE_LKM <= @SARAKE_LKM_LUOTAVIEN_MAARA
+					--BEGIN
+					--	SET @KOMENTO = @KOMENTO + ', ''COL'+CAST(@SARAKE_LKM as nvarchar(4))+''' as COL' + CAST(@SARAKE_LKM as nvarchar(4))
+					--	SET @SARAKE_LKM = @SARAKE_LKM  +1
+
+					--END
+
+
+
+					/*asetetaan muuttujat takaisin alkutilaan*/
+					--SET @SARAKE_LKM = 1
+					SET @SARAKE = ''
+					SET @PSEUDO_MODE = 0
+					--SET @Pseudonyymi_taulu = 0
+					--SET @Potilasnumero_taulu = 0
+
+
+	DECLARE SARAKKEET CURSOR FOR 
+			SELECT DATACOLUMN, SENSITIVE, PSEUDONYMIZATION_METHOD
+			FROM [#TIETOKANTA#].[DBO].[Metadata] 
+			WHERE DATATABLE = @TAULU
+	SET @SARAKE_LKM = 1			
+	SET @KOMENTO = @KOMENTO + ' UNION ALL SELECT ' 
+	
+	OPEN SARAKKEET
+
+	FETCH NEXT FROM SARAKKEET
+	INTO @SARAKE, @SENSITIVE, @PSEUDO_M
+
+
+	WHILE @@FETCH_STATUS = 0 
+	BEGIN
+			-- Jos ei ole sensitiiviseksi määritelty:
+			IF @SENSITIVE in (0,-1)
+			BEGIN 
+				SET @SARAKE_TMP = '[' + @SARAKE + ']'
+			END
+			
+			-- Jos on vapaata tekstiä sisältävä:  
+			IF @SENSITIVE = 1
+			BEGIN 
+				SET @SARAKE_TMP = 'Null'
+			END
+
+			-- Pseudonymisoidaan, jos hetu-tietoa
+			IF @SENSITIVE = 2
+			BEGIN 
+				--SET @SARAKE_TMP = 'dbo.dl_get_Pseudonym([' + @Sarake + '])'
+
+				-- Tarkistetaan onko pseudonymisoitavaa saraketta jo tullut
+
+				--IF @Potilasnumero_taulu <> 1
+				-- Jos on hetu tai 
+					--BEGIN
+				SET @PSEUDO_MODE = @SENSITIVE  -- = 2
+				SET @PSEUDO_SARAKE = @SARAKE
+				SET @Pseudonyymi_taulu = 1
+					--END
+
+				SET @SARAKE_TMP = 'p.pseudonym'
+				--SET @PSEUDO_MODE = @SENSITIVE  -- = 2
+				--SET @PSEUDO_SARAKE = @SARAKE
+
+				/*merkitään että tarvitaan pseudonyymi-taulu*/
+				
+			END
+
+			---- Haetaan potilasnumerolle hetu, joka pseudonymisoidaan
+			-- TODO CLINISOFTIN ja ASSIN hetun yhdistäminen
+			IF @SENSITIVE = 4
+			BEGIN
+				--IF @ORIGINAL_SOURCE = 'CLINISOFT'
+				--BEGIN
+				--	 SET @SARAKE_TMP = 'dbo.dl_get_Pseudonym(dbo.get_clinisoft_Hetu([' + @PSEUDO_M + ']))'
+				--END
+				--ELSE
+				--BEGIN
+				--	SET @SARAKE_TMP = 'dbo.dl_get_Pseudonym(dbo.get_Hetu2([' + @PSEUDO_M + ']))'
+				--END
+				--BEGIN
+				-- Tarkistetaan onko pseudonymisoitavaa saraketta jo tullut
+
+				--IF @Potilasnumero_taulu <> 1
+				--  
+				--BEGIN
+					SET @PSEUDO_MODE = @SENSITIVE -- = 4
+					SET @PSEUDO_SARAKE = @SARAKE
+					SET @Potilasnumero_taulu = 1
+				--END
+
+					SET @SARAKE_TMP = 'p.pseudonym'
+				--END
+
+			END
+
+			/*Viedään col --> sarakkeen nimi kääntötauluun*/
+			INSERT INTO #TIETOKANTA#.dbo.Column_Col_Kaanto (ORIGINAL_SOURCE, [COLUMN], COL, TABLE_SOURCE, DL_PATH,dt)
+			SELECT @ORIGINAL_SOURCE, '[' + @SARAKE + ']' AS og_sarake, 'COL' +CAST(@SARAKE_LKM as nvarchar(4)) AS col,@SIJAINTI_DB,@SIJAINTI_ADLS,GETDATE()
+
+
+			-- Tämä jos halutaaan kaikkien datatypeksi nvarchar(4000)
+			SET @SARAKE_TMP = 'CAST('+@SARAKE_TMP+' as nvarchar(4000)) as COL' + CAST(@SARAKE_LKM as nvarchar(4))
+
+			SET @KOMENTO = @KOMENTO + @SARAKE_TMP 
+
+			FETCH NEXT FROM SARAKKEET
+			INTO @SARAKE, @SENSITIVE, @PSEUDO_M
+
+			IF @@FETCH_STATUS = 0 SET @pilkku = ','	ELSE SET @pilkku = ''
+			SET @KOMENTO = @KOMENTO + @Pilkku
+
+
+			SET @SARAKE_LKM = @SARAKE_LKM  +1
+
+
+
+	END -- SIsempi loop
+
+	CLOSE SARAKKEET
+	DEALLOCATE SARAKKEET
+
+	-- Luodaan loput sarakkeet (jotta jokaisessa taulussa yhtä paljon SSIS:tä varten)
+	--WHILE @SARAKE_LKM <= @SARAKE_LKM_LUOTAVIEN_MAARA
+	--BEGIN
+	--	SET @KOMENTO = @KOMENTO + ', CAST(Null as nvarchar(4000)) as COL' + CAST(@SARAKE_LKM as nvarchar(4))
+	--	SET @SARAKE_LKM = @SARAKE_LKM  +1
+
+	--END
+
+	--IF @PSEUDO_MODE = 0
+	--BEGIN
+	--	SET @KOMENTO = @KOMENTO + ' FROM ' + @SIJAINTI_DB + ' AS l'	/*tämä lisätty, eikös taulun nimi voi olla aina l*/
+	--END
+	--ELSE
+	--BEGIN
+	--	SET @KOMENTO = @KOMENTO + ' FROM ' + @SIJAINTI_DB + ' AS l'
+	--END
+
+
+	SET @KOMENTO = @KOMENTO + ' FROM ' + @SIJAINTI_DB + ' AS l'
+	SET @KOMENTO = REPLACE(@KOMENTO,'[null]','null')
+
+
+
+
+	IF @Pseudonyymi_taulu = 1 --and @Potilasnumero_taulu <> 1 --@PSEUDO_MODE = 2
+		BEGIN
+			-- Mukana hetu
+			 SET @KOMENTO = @KOMENTO + ' LEFT OUTER JOIN [SSIS-KONE].#TIETOKANTA#.dbo.Pseudonyms AS p ON l.' + @PSEUDO_SARAKE + ' = p.original_value'
+		END
+	ELSE IF @Potilasnumero_taulu = 1 --@PSEUDO_MODE = 4
+		BEGIN
+			-- Mukana potilasnumero
+			SET @KOMENTO = @KOMENTO + ' LEFT OUTER JOIN #TIETOKANTA#.dbo.datalake_potnro_kaanto AS a ON l.'+ @PSEUDO_SARAKE +' = a.POTILASNUMERO
+LEFT OUTER JOIN [SSIS-KONE].#TIETOKANTA#.dbo.Pseudonyms AS p ON a.HENKILOTUNNUS = p.original_value'
+		END
+	
+
+
+	-- Tallennetaan taulukohtainen komento tauluun:
+	INSERT INTO SSIS_komennot_ja_kohteet (HAKUKOMENTO, KOHDE_AZURESSA, ORIGINAL_SOURCE)
+	SELECT @KOMENTO, REPLACE(@SIJAINTI_ADLS,'Ä','A'), @ORIGINAL_SOURCE
+
+
+	SET @Taulu_lkm = @Taulu_lkm +1
+	SET @Pseudonyymi_taulu = 0
+	SET @Potilasnumero_taulu = 0
+
+	FETCH NEXT FROM TAULUT
+	INTO @TAULU, @SIJAINTI_ADLS, @SIJAINTI_DB, @ORIGINAL_SOURCE
+
+END -- Ulompi loop
+
+CLOSE TAULUT
+DEALLOCATE TAULUT
+
+END
+
+
+

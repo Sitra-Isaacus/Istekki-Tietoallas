@@ -1,0 +1,94 @@
+
+#from azure.common.credentials import ServicePrincipalCredentials
+from azure.datalake.store.core import AzureDLFileSystem
+from azure.datalake.store.lib import auth
+from azure.datalake.store import multithread, core, lib
+import pyodbc
+import pandas as pd
+import time
+import datetime as dt
+import argparse
+
+
+# passu näkyvissä!
+def make_token():
+    tenant_id = "##"
+
+
+    # Your Service Principal App ID
+    #username = '##'
+    username = "##"
+
+    # Your Service Principal Password
+    #password = '##'
+    password = "##"
+
+    token = auth(tenant_id, username, password)
+    return token
+
+
+def hae_ja_kirjoita(kysely, kohde):
+    return
+
+
+if __name__ == "__main__":
+    # Mahdolliset parametrit
+    parser = argparse.ArgumentParser(description='Metatiedot')
+    parser.add_argument('--SERVER', required=True, help='Palvelimen nimi')
+    # parser.add_argument('--LAHDE_DB', required=True, help='Kannan nimi')
+    # parser.add_argument('--LAHDE_SCHEMA', required=True, help='Skeema')
+    # parser.add_argument('--OSOURCE', required=True, help='Järjestelmän nimi')
+    #
+    args = parser.parse_args()
+    args = vars(args)
+    # print(args)
+    
+
+
+
+    allas_server = '##'
+    allas_uid = '##'
+    allas_pwd = '##'
+
+    allas_conn = pyodbc.connect("Driver={SQL Server};Server=" + allas_server + ";Database=#TIETOKANTA#;uid=" + allas_uid + ";pwd=" + allas_pwd)
+    cursor = allas_conn.cursor()
+
+    if args['SERVER'] == '##':
+        lahde_server = '##'
+        lahde_uid = '##'
+        lahde_pwd = '##'
+    elif args['SERVER'] == '##':
+        lahde_server = '##'
+        lahde_uid = '##'
+        lahde_pwd = '##'
+
+    lahde_conn = pyodbc.connect("Driver={SQL Server};Server=" + lahde_server + ";Database=#TIETOKANTA#;uid=" + lahde_uid + ";pwd=" + lahde_pwd)    
+
+
+    df = pd.read_sql("SELECT [UID], [HAKUKOMENTO], "
+                     "[KOHDE_AZURESSA], [ORIGINAL_SOURCE] "
+                     "FROM #TAULU#", allas_conn)
+
+    print("Siirrettäviä tauluja: ", len(df))
+    start_time = time.clock()
+    now_time = time.clock()
+    adl = AzureDLFileSystem(make_token(), store_name='##')
+    
+    for index, row in df.iterrows():
+        print("LAHDE: ",row['ORIGINAL_SOURCE'])
+        print("HAKUKOMENTO: ", row['HAKUKOMENTO'][:30], "...")
+        print("KOHDE: ", row['KOHDE_AZURESSA'])
+        print("")
+
+        i = 0
+        with adl.open(str(row['KOHDE_AZURESSA'])+"/"+str(dt.date.today()), 'ab') as f:
+            for chunk in pd.read_sql(row['HAKUKOMENTO'], lahde_conn, chunksize=1000000):                
+                i = i + 1
+                df_str = chunk.to_csv(sep="|", index=False, header=None)
+                f.write(str.encode(df_str))
+                print("chunkki", i)
+                print("--- suoritusaika %s sec ---" % (time.clock() - now_time))
+                now_time = time.clock()
+        f.close()    
+
+    print("--- suoritusaika %s sec ---" % (time.clock() - start_time))

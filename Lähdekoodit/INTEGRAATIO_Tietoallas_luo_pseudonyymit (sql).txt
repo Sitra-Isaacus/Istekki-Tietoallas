@@ -1,0 +1,159 @@
+USE [#TIETOKANTA#]
+GO
+/****** Object:  StoredProcedure [dbo].[#TIETOKANTA#_luo_pseudonyymit]    Script Date: 21.8.2018 17.27.05 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+-- =============================================
+-- Author:		Aleksi R
+-- Create date: 9.8.2017
+-- Description:	Luo kaikille sensitiivisille sarakkeille massa-ajona
+-- pseudonyymin, esim. hetuille. Sensitiivisyys tunnistetaan metatietojen perustella
+-- #TIETOKANTA#.dbo.Isaacus_Metadata.SENSITIVE = 2
+-- =============================================
+ALTER PROCEDURE [dbo].[#TIETOKANTA#_luo_pseudonyymit]
+	-- Proseduuri ei tällä hetkellä tarvitse parametreja
+
+	@linkedserver nvarchar(50) = '##'
+	/*proseduurille annetaan parametrina linked serverin nimi, josta pseudonymisoitava data haetaan.
+	Tällä hetkellä olevat linked serverit:
+	Kuopion SoteDW = ##
+	Assi = ##
+	Vegas = ##
+	Sosiaalieffica = ##
+	*/
+AS
+BEGIN
+
+
+
+	SET NOCOUNT ON;
+	DECLARE @ls_query NVARCHAR(MAX) = ''
+
+	/*Tyhjennetään pseudonymisoitavat_sarakkeet-taulu ja haetaan sitten metatiedoista SENSITIVE=2 kentät*/
+
+	--TRUNCATE TABLE #TIETOKANTA#.dbo.Isaacus_Pseudonymisoitavat_sarakkeet
+	SET @ls_query = 
+		'DELETE FROM ['+@linkedserver+'].[#TIETOKANTA#].[dbo].[Pseudonymisoitavat_sarakkeet]'
+		EXEC (@ls_query)
+
+	/*INSERT INTO #TIETOKANTA#.dbo.Isaacus_Pseudonymisoitavat_sarakkeet
+	(HAKUKOMENTO)
+	/*Pitäisikö metatiedoissa olla käytettävä tietokanta? Laitettu nyt kiinteästi
+	27.9.2017 vaihdettu DATATABLEN tilalle SOURCE, joka sisältää myös tietokannan
+	*/
+	--SELECT 'SELECT ' + DATACOLUMN  + ' FROM ##.' + DATATABLE + ' WHERE ' + DATACOLUMN + ' IS NOT NULL GROUP BY ' + DATACOLUMN   AS HAKUKOMENTO
+	SELECT 'SELECT ' + DATACOLUMN  + ' FROM ' + SOURCE + ' WHERE ' + DATACOLUMN + ' IS NOT NULL GROUP BY ' + DATACOLUMN   AS HAKUKOMENTO
+	FROM #TIETOKANTA#.dbo.Isaacus_Metadata
+	WHERE SENSITIVE = 2
+	*/
+
+	/*listataan pseudonymisoitavat sarakkeet (kyselyt joilla niiden datat haetaan) lähtöpään tietokantaan.*/
+	SET @ls_query = 
+	'
+	INSERT INTO ['+@linkedserver+'].#TIETOKANTA#.dbo.Pseudonymisoitavat_sarakkeet
+	(HAKUKOMENTO)
+
+
+	SELECT ''SELECT DISTINCT '' + DATACOLUMN  + '' FROM [' + @linkedserver + '].'' + SOURCE + '' WHERE '' + DATACOLUMN + '' IS NOT NULL GROUP BY '' + DATACOLUMN   AS HAKUKOMENTO
+	FROM ['+@linkedserver+'].#TIETOKANTA#.dbo.Metadata
+	WHERE SENSITIVE = 2'
+
+	EXEC (@ls_query)
+
+	/*haetaan äsken luodut kyselyt tänne puolelle temp-tauluun jotta niitä on helpompi suorittaa täällä */
+    SET @ls_query = 
+	'SELECT HAKUKOMENTO FROM  ['+@linkedserver+'].[#TIETOKANTA#].[dbo].[Pseudonymisoitavat_sarakkeet]'
+
+	CREATE TABLE dbo.#hakukomennot (HAKUKOMENTO nvarchar(4000))
+	INSERT INTO #hakukomennot (HAKUKOMENTO)
+	EXEC (@ls_query)
+
+
+	/*Laitetaan pseudonyymidatat temp-tauluun*/
+
+	CREATE TABLE dbo.#pseudonymisoitavat_kaikki
+		(
+		datavalue nvarchar(200) NOT NULL /*Minkä kokoinen tämän pitäisi olla? Voitaisiin esim. muuttaa lennosta tulevan datan perusteella alter tablella.*/
+		)
+
+	DECLARE @query nvarchar(4000) = ''
+
+	DECLARE KYSELYT CURSOR FOR 
+				SELECT HAKUKOMENTO
+				FROM #hakukomennot -- haetaan äsken luodusta temptaulusta kysely. Ennen nämä olivat lähtöpäässä.
+				--[#TIETOKANTA#].[DBO].[Isaacus_Pseudonymisoitavat_sarakkeet] 
+
+	
+	/*Suoritetaan kyselyt ja laitetaan niiden palauttamat arvot temp-tauluun*/
+	OPEN KYSELYT
+	FETCH NEXT FROM KYSELYT
+	INTO @query
+
+		WHILE @@FETCH_STATUS = 0
+		BEGIN
+
+			INSERT INTO dbo.#pseudonymisoitavat_kaikki(datavalue) /*<-- laitetaan temp-tauluun*/
+			EXEC (@query)
+			FETCH NEXT FROM KYSELYT
+			INTO @query
+		END
+	
+	CLOSE KYSELYT
+	DEALLOCATE KYSELYT
+
+
+	/*temp-taulu, johon siivotaan duplikaatit pois*/
+	CREATE TABLE dbo.#pseudonymisoitavat
+		(
+		datavalue nvarchar(200) NOT NULL,
+		orderby int NULL
+		)
+
+	CREATE TABLE dbo.#pseudonyymit
+		(
+		datavalue nvarchar(200) NOT NULL,
+		pseudonym int NOT NULL
+		)
+
+		INSERT INTO dbo.#pseudonymisoitavat(datavalue)
+		SELECT datavalue FROM dbo.#pseudonymisoitavat_kaikki GROUP BY datavalue
+
+		/*Tästä joukosta siivotaan ne arvot pois, joilla on jo pseudonyymi*/
+
+		DELETE p
+		FROM #pseudonymisoitavat AS p
+		INNER JOIN #TIETOKANTA#.dbo.Pseudonyms AS t ON p.datavalue = t.original_value
+
+
+		/*rivien määrä random tablea varten*/
+		DECLARE @count_of_rows INT = (SELECT COUNT(*) FROM dbo.#pseudonymisoitavat)
+
+		/*Haetaan pseudonyymit tiedoille, yhdistämällä temp-taulu #pseudonyymit ja #TIETOKANTA#.dbo.RandomNumbers käytännössä vierekkäin,
+		randomnumbersista otetaan tasan se rivimäärä mitä on pseudonyymejäkin tulossa.
+		*/
+		INSERT INTO dbo.#pseudonyymit (datavalue, pseudonym)
+		SELECT p.datavalue, r.Value AS pseudonym FROM
+		(SELECT ROW_NUMBER() OVER (ORDER BY orderby) AS id,datavalue FROM dbo.#pseudonymisoitavat) AS p
+		INNER JOIN
+		(SELECT TOP(@count_of_rows) Value, ROW_NUMBER() OVER (ORDER BY RowID) AS id FROM #TIETOKANTA#.dbo.RandomNumbers) AS r
+		ON p.id = r.id
+
+
+		/*Viedään pseudonyymi-tauluun*/
+		INSERT INTO #TIETOKANTA#.dbo.Pseudonyms (original_value,pseudonym,dt_created,value_type_id)
+		SELECT DISTINCT datavalue, pseudonym,GETDATE(),1
+		FROM #pseudonyymit
+
+		/*Poistetaan käytetyt random numberit, jotta niitä ei enää käytetä uudelleen*/
+		DELETE r
+		FROM #TIETOKANTA#.dbo.RandomNumbers AS r
+		INNER JOIN #pseudonyymit AS p ON r.Value = p.pseudonym
+
+		/*lopuksi siivotaan temp-taulut pois (nämä tosin poistuu myös kun tämän stored proceduren suoritus päättyy...*/
+		DROP TABLE #pseudonymisoitavat_kaikki
+		DROP TABLE #pseudonymisoitavat
+		DROP TABLE #pseudonyymit
+
+END

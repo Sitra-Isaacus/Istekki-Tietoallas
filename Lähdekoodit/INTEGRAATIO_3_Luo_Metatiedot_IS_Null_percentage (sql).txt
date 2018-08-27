@@ -1,0 +1,121 @@
+USE [#TIETOKANTA#]
+GO
+/****** Object:  StoredProcedure [dbo].[ALLAS_3_Luo_Metatiedot_IS_Null_percentage]    Script Date: 21.8.2018 17.24.56 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+
+
+
+
+
+-- =============================================
+-- Author:		Heikki M
+-- Create date: 11.4.2017
+-- Description:	Laskee kuinka monessa solussa on tietoja sarakkeessa
+-- =============================================
+ALTER PROCEDURE [dbo].[ALLAS_3_Luo_Metatiedot_IS_Null_percentage] 
+AS
+BEGIN
+	SET NOCOUNT ON;
+
+DECLARE @TAULU NVARCHAR (200)
+DECLARE @SARAKE NVARCHAR (200)
+DECLARE @SENSITIVE int
+DECLARE @SQLKOMENTO NVARCHAR (1000)
+
+DECLARE @SarakeNullLkm numeric(16,2)
+DECLARE @TauluRivitLkm numeric(16,2)
+DECLARE @IS_NULL_Prosentti numeric(7,5)
+
+
+
+DECLARE @KANTA_JA_SCHEMA_JA_TAULU nvarchar(400) 
+
+DECLARE TAULUT CURSOR FOR 
+		SELECT DISTINCT DATATABLE, SOURCE
+		FROM #TIETOKANTA#
+
+OPEN TAULUT
+
+FETCH NEXT FROM TAULUT
+INTO @TAULU,  @KANTA_JA_SCHEMA_JA_TAULU
+
+WHILE @@FETCH_STATUS = 0 
+BEGIN
+	-- TAULUN RIVIEN MÄÄRÄ
+
+	SET @SQLKOMENTO =N'
+		SELECT @TauluRivitLkm= count(*) from ' + @KANTA_JA_SCHEMA_JA_TAULU 
+
+	EXECUTE sp_executesql 
+		@Query = @SQLKOMENTO,
+		@Params = N'@TauluRivitLkm numeric(16,2) OUTPUT',
+		@TauluRivitLkm = @TauluRivitLkm OUTPUT
+
+    -- SISEMPI LOOP
+	DECLARE SARAKKEET CURSOR FOR 
+		SELECT DATACOLUMN
+		FROM #TIETOKANTA#.DBO.ISAACUS_METADATA
+		WHERE DATATABLE = @taulu AND IS_nullable = 1
+
+	OPEN SARAKKEET
+
+	FETCH NEXT FROM SARAKKEET INTO @SARAKE
+
+	WHILE @@FETCH_STATUS = 0 
+	BEGIN
+		-- Paljonko tyhjää: 
+		SET @SQLKOMENTO =N'
+			SELECT @SarakeNullLkm= count(*) from '+ @KANTA_JA_SCHEMA_JA_TAULU + ' where [' +@SARAKE+ '] is null'
+
+		EXECUTE sp_executesql 
+			@Query = @SQLKOMENTO,
+			@Params = N'@SarakeNullLkm numeric(16,2) OUTPUT',
+			@SarakeNullLkm = @SarakeNullLkm OUTPUT
+
+        SET @TauluRivitLkm = NULLIF(@TauluRivitLkm,0)
+
+		SELECT @IS_NULL_Prosentti = COALESCE(ROUND(@SarakeNullLkm/@TauluRivitLkm,5,1),1)
+
+		SET @SQLKOMENTO =N'
+			UPDATE #TIETOKANTA#.DBO.METADATA
+			SET IS_NULL_PERCENTAGE = '''+ CAST(@IS_NULL_Prosentti as nvarchar(10)) +'''
+			WHERE DATATABLE = ''' +@TAULU + ''' AND  
+			      DATACOLUMN = '''+@SARAKE + ''''
+		EXECUTE sp_executesql 
+			@Query = @SQLKOMENTO
+
+		FETCH NEXT FROM SARAKKEET INTO @SARAKE
+	END
+	CLOSE SARAKKEET
+	DEALLOCATE SARAKKEET
+
+	RAISERROR (@TAULU,0,0) WITH NOWAIT
+	
+	FETCH NEXT FROM TAULUT
+	INTO @TAULU,  @KANTA_JA_SCHEMA_JA_TAULU
+END -- Ulompi loop
+
+
+
+
+CLOSE TAULUT
+DEALLOCATE TAULUT
+
+
+
+-- Ne jotka ei saa olla tyhjiä
+UPDATE #TIETOKANTA#.DBO.METADATA
+SET IS_NULL_PERCENTAGE = 0
+WHERE IS_Nullable = 0
+
+
+		
+
+
+
+END
+
+

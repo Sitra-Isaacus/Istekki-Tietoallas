@@ -1,0 +1,86 @@
+#!/usr/bin/python3
+# !/usr/bin/env python3
+import requests
+from bson.json_util import dumps
+import pandas as pd
+from pandas.io.json import json_normalize
+from sqlalchemy import create_engine
+import datetime as dt
+import pyodbc
+
+
+
+
+writecon = create_engine(
+    'mssql+pyodbc://##:##@##:##/##?driver=SQL+Server+Native+Client+11.0')
+
+conn = pyodbc.connect('Driver={SQL Server};'
+                      'Server=##;'
+                      'Database=##;'
+                      'uid=##;pwd=##')
+cur = conn.cursor()
+
+
+def putsaa_sql(tanaan, eilen):
+    """
+    :param tanaan: tänään date
+    :param eilen: tänään -1 date
+    :return:
+
+    Poistetaan tämän ja eilisen päivän datat kannasta
+    """
+    query = "DELETE FROM [##].[dbo].[azuren_eurot] where " \
+            "cast([date] as date) = '" + eilen + "' or cast([date] as date) = '" + tanaan + "'"
+    cur.execute(query)
+    cur.commit()
+
+def pyynto(URL, headers, tanaan, eilen):
+    """
+
+    :param URL: mihin urliin pyyntö menee
+    :param headers: pyynnön hederi, sisältää autentikoinnin
+    :param tanaan:
+    :param eilen:
+    :return:
+    """
+    r = requests.get(URL, headers=headers, verify=False, stream=True)
+    if r.status_code == 200:
+
+        #print(r.raw._fp.fp.raw._sock.getpeername())
+        # Pyyntö ok
+        putsaa_sql(tanaan, eilen)
+        #print(dumps(r.json(), indent=4))
+        df = json_normalize(r.json()['data'])
+
+        #print(df.head(10))
+
+        df.to_sql('azuren_eurot', writecon, if_exists='append', index=None)
+
+        while r.json()['nextLink']:
+            #print("Uusi linkki")
+            #print(r.json()['nextLink'])
+            r = requests.get(r.json()['nextLink'], headers=headers, verify=False)
+            # print(dumps(r.json(), indent=4))
+            df = json_normalize(r.json()['data'])
+            df.to_sql('azuren_eurot', writecon, if_exists='append', index=None)
+
+
+if __name__ == "__main__":
+    APIKEY = "##"
+
+    ENROLLMENT = "##"
+
+    today = dt.date.today()
+    #print(today - dt.timedelta(days=1))
+
+    tanaan = str(dt.date.today())
+    eilen = str(dt.date.today() - dt.timedelta(days=1))
+
+    URL = "https://consumption.azure.com/v2/enrollments/" + ENROLLMENT + "/usagedetailsbycustomdate?startTime=" + \
+          eilen + "&endTime=" + tanaan + ""
+    headers = {"Authorization": "bearer " + APIKEY}
+
+    pyynto(URL, headers, tanaan, eilen)
+
+    cur.close()
+    conn.close()

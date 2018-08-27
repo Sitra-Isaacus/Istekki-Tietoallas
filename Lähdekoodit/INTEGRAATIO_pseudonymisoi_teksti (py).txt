@@ -1,0 +1,151 @@
+# https://stackoverflow.com/questions/20290870/improving-the-extraction-of-human-names-with-nltk
+
+import libvoikko
+# v = libvoikko.Voikko("fi", "c:/voikko")
+# print(v.analyze("Espoo"))
+
+
+import os
+from nltk.corpus import stopwords
+from nltk.tokenize import word_tokenize
+import nltk
+import re
+
+
+def nimet(v, poista_luokat):
+    palauta = True
+    try:
+        for tulkinta in v:
+            if tulkinta['CLASS'] in poista_luokat:
+                palauta = False
+    except Exception as e:
+        #print("virhe", e)
+        palauta = True
+
+    return palauta
+
+
+def nimisanat(v):
+    palauta = True
+    try:
+        for tulkinta in v:
+            if tulkinta['CLASS'] == 'nimisana' and tulkinta['POSSIBLE_GEOGRAPHICAL_NAME'] == 'true':
+                palauta = False
+    except Exception as e:
+        # Luokka puuttuu -> normi nimisana
+        #print("virhe", e)
+        palauta = True
+
+    return palauta
+
+
+def tokenize(text):
+    """
+
+    Tokenoidaan teksti, jonka j‰lkeen poistetaan t‰ytesanat.
+    :param text:
+    :return filtered_text:
+    """
+
+    tayte = set(stopwords.words('finnish'))
+    tayte.add('.')
+    tayte.add(',')
+    tayte.add(':')
+    tayte.add(';')
+
+    v = libvoikko.Voikko("fi", "c:/voikko")
+
+    word_tokens = word_tokenize(text)
+    filtered_text = []
+    poista_luokat = ['paikannimi', 'etunimi', 'sukunimi']
+    for w in word_tokens:
+        # K‰yd‰‰n l‰pi kaikki sanat = tokenit
+        # Ensin Voikolla tarkistukset ja lemmaus
+        if w not in tayte:
+            w = w.strip('/')
+            # print(w)
+            try:
+                sana = v.analyze(w)
+                tulos1 = nimet(sana, poista_luokat)
+                #print(sana, tulos1)
+
+                tulos2 = nimisanat(sana)
+                #print(sana, tulos2)
+
+                if not tulos1 or not tulos2:
+                    filtered_text.append('xxx')
+                else:
+                    filtered_text.append(w)
+                print("Virhe2")
+                print(e, w)
+                # print('mukaan')
+                filtered_text.append(w)
+                continue
+    return filtered_text
+
+
+def r_puh_nro(text):
+    regex = r"((\+?)358(\s?|-))?\d{2,3}(-|.|\s?)\d{3}(-|.|\s?)\d{4}|\d{3}(-|\s?)\d{3,6}"
+    subst = "xxx xxx xxxx"
+
+    # You can manually specify the number of replacements by changing the 4th argument
+    result = re.sub(regex, subst, text, count=0)
+
+    return result
+
+
+def r_hetu(text):
+    regex = r"\d{6}(A|-)\d{3}(\D|\d)"
+    subst = "xxxxxxxxxxx"
+
+    # You can manually specify the number of replacements by changing the 4th argument
+    result = re.sub(regex, subst, text, count=0)
+
+    return result
+
+
+def r_pvm(text):
+    regex = r"(\d{2}(\s|-))?\d{1,2}\.\d{1,2}\.(\d{4}|\d{2})|\d{1,2}\.\d{1,2}|\d{4,8}"
+    subst = "xx.xx.xxxx"
+
+    # You can manually specify the number of replacements by changing the 4th argument
+    result = re.sub(regex, subst, text, count=0)
+
+    return result
+
+
+def lue_filut(directory):
+    for filename in os.listdir(directory):
+        if filename.endswith(".txt"):
+            # print(os.path.join(directory, filename))
+            # filu = open(os.path.join(directory, filename), 'r')
+            # match = hae_hetu(filename)
+            # if match:
+            # print("regexi "+match.group())
+            with open(os.path.join(directory, filename), 'r', encoding="UTF-8") as file:
+                data = file.read()
+                unicode_line = data.translate({ord(c): " " for c in '/.,'})
+                unicode_line = data.translate({ord(c): None for c in '[]()!@#$*'})
+                # print(unicode_line)
+
+                unicode_line = r_hetu(unicode_line)
+                unicode_line = r_puh_nro(unicode_line)
+                unicode_line = r_pvm(unicode_line)
+
+                # print(unicode_line)
+
+                filtered_text = tokenize(unicode_line)
+                teksti = ' '.join(filtered_text)
+                print(teksti)
+
+                with open(os.path.join(directory, "anon.txt"), 'w', encoding="UTF-8") as file_orig:
+                    file_orig.write(teksti)
+
+        else:
+            break
+
+
+if __name__ == "__main__":
+    directory = "C:/Users/mikaro/Desktop/POISTAsostext"
+    lue_filut(directory)
+    # nltk.download()

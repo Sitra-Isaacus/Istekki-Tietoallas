@@ -1,0 +1,83 @@
+
+import requests
+from bson.json_util import dumps
+import time
+import argparse
+
+# TODO
+# Tarkista sertin käyttö
+import urllib3
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+def tarkista_runi(run_id):
+    runi_r = requests.get(
+        BASE_URL + 'jobs/runs/get?run_id='+str(run_id),
+        headers={"Authorization": "Bearer " + TOKEN},
+        json={}, verify=False
+    )
+
+    print(runi_r.status_code)
+    if runi_r.status_code == 200:
+        #print(runi_r.json()['state']['life_cycle_state'])
+        print(dumps(runi_r.json(), indent=2))
+        return runi_r.json()['state']['life_cycle_state']
+    else:
+        print("virhe: %s" % runi_r.json())
+
+
+def listaa_jobit():
+    jobit_r = requests.get(
+        BASE_URL + 'jobs/list',
+        headers={"Authorization": "Bearer " + TOKEN},
+        json={}, verify=False
+    )
+
+    print(jobit_r.status_code)
+    if jobit_r.status_code == 200:
+        #print(jobit_r.json())
+        print(dumps(jobit_r.json(), indent=2))
+    else:
+        print("virhe: %s" % jobit_r.json())
+
+def aja_jobi(job_id):
+    aja_r = requests.post(
+        BASE_URL + 'jobs/run-now',
+        headers={"Authorization": "Bearer " + TOKEN},
+        json={"job_id": ""+str(job_id)}, verify=False
+    )
+
+    print(aja_r.status_code)
+    if aja_r.status_code == 200:
+        print(aja_r.json())
+        return aja_r.json()['run_id']
+        #print(dumps(aja_r.json(), indent=2))
+    else:
+        print("virhe: %s" % aja_r.json())
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description='Ajettavan jobin speksit')
+    parser.add_argument('--JOB_ID', required=True, help='Job id')
+
+    args = parser.parse_args()
+    args = vars(args)
+    print(args)
+
+    DOMAIN = 'northeurope.azuredatabricks.net'
+    TOKEN = '##' # Voimassa 30pv tehty 22.8
+    BASE_URL = 'https://%s/api/2.0/' % DOMAIN
+    print(BASE_URL)
+
+    #listaa_jobit()
+    run_id = aja_jobi(args['JOB_ID'])
+
+    while True:
+        state = tarkista_runi(run_id)
+        if state == 'PENDING' or state == 'RUNNING':
+            # Ajo kesken
+            # Odotellaan 10sek ja tarkistetaan uudestaan mikä tilanne
+            time.sleep(5)
+            continue
+        else:
+            print("VALMIS ", state)
+            break

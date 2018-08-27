@@ -1,0 +1,219 @@
+import pandas as pd
+import re
+import time
+
+
+def tarkista_pseudonymisoitavat(conn, cursor, lahde):
+    df = pd.io.sql.read_sql('SELECT [DATATABLE]'
+                            ',[DATACOLUMN]'
+                            ',[SOURCE]'
+                            ' FROM [#TIETOKANTA#].[dbo].[Metadata]'
+                            " WHERE ORIGINAL_SOURCE = ? AND (SENSITIVE = 2 OR SENSITIVE = 4)"
+                            , conn, params=[lahde])
+
+    print(df)
+
+    for index, row in df.iterrows():
+        print(row['DATACOLUMN'], row['SOURCE'])
+        value = [row['DATACOLUMN'], row['SOURCE']]
+        print(value)
+
+        cursor.execute("SELECT COUNT([" + row['DATACOLUMN'] + "]) FROM " + row['SOURCE'] + "")
+
+        rslt = cursor.fetchone()
+        nulliko = int(rslt[0])
+        if nulliko == 0:
+            # Nulli -> merkit‰‰n poistettavaksi
+            kirjoita_meta_tauluun(["1", row['DATATABLE'], row['DATACOLUMN']], conn, cursor)
+
+        # T‰h‰n poikkeus Clinisoftin osalta, miss‰ PatientID joku oma id ja socsecurity sis‰lt‰‰ hetun
+        if lahde == 'CLINISOFT' and row['DATACOLUMN'] == 'PatientID':
+            kirjoita_meta_tauluun(["0", row['DATATABLE'], row['DATACOLUMN']], conn, cursor)
+
+
+def tee_random_check(taulu, sarake, db, conn, cursor):
+    print("random hetu check")
+
+    # Otetaan randomilla 10000 arvoa ja tarkistetaan, ettei seassa ole hetuja
+
+    df_random = pd.io.sql.read_sql('SELECT top 10000 [' + sarake +
+                                   '] FROM [' + db + '].[dbo].[' + taulu +
+                                   '] WHERE (ABS(CAST((BINARY_CHECKSUM(*) * RAND()) as int)) % 100) < 10',
+                                   conn)
+
+    for row2 in df_random.itertuples(index=True):
+        # print(row2[1])
+        # print(row2[sarake])
+        hetu_re = re.search(r"\d{6}(-|A)(\d|\w){4}", str(row2[1]), re.IGNORECASE)
+        if hetu_re:
+            print("lˆyty hetu -> sarake pseudonymisoidaan")
+            # Hetu lˆytyi
+            return "2"
+        # Kaikki ok
+        return "0"
+
+
+def tee_hetu_check(taulu, sarake, db, conn, cursor):
+    print("hetu check")
+
+    df_random = pd.io.sql.read_sql('SELECT [' + sarake +
+                                   '] FROM [' + db + '].[dbo].[' + taulu + ']', conn)
+
+    for row2 in df_random.itertuples(index=True):
+        # print(row2[1])
+        # print(row2[sarake])
+        hetu_re = re.search(r"\d{6}(-|A)(\d|\w){4}", str(row2[1]), re.IGNORECASE)
+        if hetu_re:
+            print("lˆyty hetu -> sarake pseudonymisoidaan")
+            # Hetu lˆytyi
+            return "2"
+        # Kaikki ok
+        return "0"
+
+
+def kirjoita_meta_tauluun(value, conn, cursor):
+    SQLCommand = (
+        "UPDATE [#TIETOKANTA#].[dbo].[Metadata] SET [SENSITIVE] = ? WHERE [DATATABLE] = ? AND"
+        " [DATACOLUMN] = ?")
+    cursor.execute(SQLCommand, value)
+    conn.commit()
+
+
+def main(conn, cursor, db, lahde):
+    df = pd.io.sql.read_sql("SELECT *"
+                            "FROM [#TIETOKANTA#].[dbo].[Python_params]"
+                            "WHERE AJA = 'True'", conn)
+
+
+    #print(db)
+    pseudo = df.iloc[0]['PSEUDO']
+    poista = df.iloc[0]['POISTA']
+    sailyta = df.iloc[0]['SAILYTA']
+    potnro = df.iloc[0]['POTNRO']
+
+    # SAILYTA
+    if sailyta:
+        sailyta_temp = []
+        sailyta = sailyta.split("|")
+        for sana in sailyta:
+            if sana[0] != '%':
+                sana = '^' + sana
+            if sana[len(sana) - 1] != '%':
+                sana = sana + '$'
+            sana = sana.replace('%', '')
+            sailyta_temp.append(sana)
+        sailyta = '|'.join(sailyta_temp)
+
+    # POISTA
+    if poista:
+        poista_temp = []
+        poista = poista.split("|")
+        for sana in poista:
+            if sana[0] != '%':
+                sana = '^' + sana
+            if sana[len(sana) - 1] != '%':
+                sana = sana + '$'
+            sana = sana.replace("%", "", 2)
+            poista_temp.append(sana)
+        poista = '|'.join(poista_temp)
+
+    # PSEUDO
+    if pseudo:
+        pseudo_temp = []
+        pseudo = pseudo.split("|")
+        for sana in pseudo:
+            if sana[0] != '%':
+                sana = '^' + sana
+            if sana[len(sana) - 1] != '%':
+                sana = sana + '$'
+            sana = sana.replace('%', '')
+            pseudo_temp.append(sana)
+        pseudo = '|'.join(pseudo_temp)
+
+    # POTNRO
+    if potnro:
+        potnro_temp = []
+        potnro = potnro.split("|")
+        for sana in potnro:
+            if sana[0] != '%':
+                sana = '^' + sana
+            if sana[len(sana) - 1] != '%':
+                sana = sana + '$'
+            sana = sana.replace('%', '')
+            potnro_temp.append(sana)
+        potnro = '|'.join(potnro_temp)
+
+    print(sailyta)
+    print(poista)
+    print(pseudo)
+    print(potnro)
+
+    tyyppi = 'nvarchar,varchar'
+    df = pd.io.sql.read_sql('SELECT [DATATABLE]'
+                            ',[DATACOLUMN]'
+                            ',[SENSITIVE]'
+                            ',[DATATYPE]'
+                            ',[IS_NULLABLE]'
+                            ',[IS_NULL_PERCENTAGE]'
+                            ',[SIZE]'
+                            ',[PRECISION]'
+                            ',[SCALE]'
+                            ',[ORIGINAL_SOURCE]'
+                            ',[DATA_OWNER]'
+                            ',[SOURCE]'
+                            ',[LOCATION_ADLS]'
+                            ',[METADATA_DATE]'
+                            ',[PSEUDONYMIZATION_METHOD]'
+                            ' FROM [#TIETOKANTA#].[dbo].[Metadata]'
+                            " WHERE ORIGINAL_SOURCE = ?"
+                            , conn, params=[lahde])
+
+    for index, row in df.iterrows():
+        print(row['DATATABLE'], row['DATACOLUMN'])
+        sarake = row['DATACOLUMN']
+
+        sailyta_re = re.search(r"{0}".format(sailyta), row['DATACOLUMN'], re.IGNORECASE)
+        poista_re = re.search(r"{0}".format(poista), row['DATACOLUMN'], re.IGNORECASE)
+        pseudo_re = re.search(r"{0}".format(pseudo), row['DATACOLUMN'], re.IGNORECASE)
+        potnro_re = re.search(r"{0}".format(potnro), row['DATACOLUMN'], re.IGNORECASE)
+
+        start_time = time.clock()
+
+        if pseudo_re:
+            print("Pseudo regex ", pseudo_re.group())
+            print(row['DATACOLUMN'])
+            print("PSEUDO")
+            kirjoita_meta_tauluun(["2", row['DATATABLE'], row['DATACOLUMN']], conn, cursor)
+
+        elif poista_re:
+            print("Poista regex", poista_re.group())
+            print(row['DATACOLUMN'])
+            print("POISTA")
+            kirjoita_meta_tauluun(["1", row['DATATABLE'], row['DATACOLUMN']], conn, cursor)
+
+        elif sailyta_re:
+            print("S‰ilyta regex", sailyta_re.group())
+            print(row['DATACOLUMN'])
+            print("SAILYTA")
+
+            # Vaikkakin on merkitty s‰ilytett‰v‰ksi tarkistetaan varuilta
+            check = tee_random_check(row['DATATABLE'], row['DATACOLUMN'], db, conn, cursor)
+            print(check)
+            if check == "2":
+                # Muutetaan arvoa
+                kirjoita_meta_tauluun([check, row['DATATABLE'], row['DATACOLUMN']], conn, cursor)
+            # Muuten annetaan olla eli = 0
+
+        elif potnro_re:
+            print("Potilasnumero sarake")
+            kirjoita_meta_tauluun(["4", row['DATATABLE'], row['DATACOLUMN']], conn, cursor)
+
+        else:
+            print("ei kannanottoa regexill‰ -> menee hetuchekkiin")
+            check = tee_hetu_check(row['DATATABLE'], row['DATACOLUMN'], db, conn, cursor)
+            kirjoita_meta_tauluun([check, row['DATATABLE'], row['DATACOLUMN']], conn, cursor)
+
+        print(row['DATATABLE'], row['DATACOLUMN'], " ok")
+        print("--- tarkistusaika %s sec ---" % (time.clock() - start_time))
+        print("")
+

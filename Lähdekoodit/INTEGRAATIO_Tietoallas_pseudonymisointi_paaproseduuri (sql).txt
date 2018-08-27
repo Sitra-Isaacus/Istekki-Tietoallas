@@ -1,0 +1,35 @@
+USE [Tietoallas]
+GO
+/****** Object:  StoredProcedure [dbo].[Tietoallas_pseudonymisointi_p‰‰proseduuri]    Script Date: 21.8.2018 17.26.30 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+
+-- =============================================
+-- Author:		Aleksi R
+-- Create date: 18.5.2018
+-- description: P‰‰proseduuri joka suorittaa kaikkien tietol‰hteiden pseudonymisoinnit
+-- =============================================
+ALTER PROCEDURE [dbo].[Tietoallas_pseudonymisointi_p‰‰proseduuri]
+-- Ei parametreja
+AS
+BEGIN
+
+/*Suorittaa kaikkiin tietol‰hteisiin pseudonymisoinnin ja ker‰‰ pseudonyymit ##-koneen
+Tietoallas-tietokantaan tauluun Pseudonyms
+*/
+
+EXEC [dbo].[Tietoallas_Luo_Pseudonyymit] '##';
+
+-- ##
+EXEC [dbo].[Tietoallas_Luo_Pseudonyymit] '##';
+
+
+--EXEC [dbo].[Tietoallas_Luo_Pseudonyymit] '##';
+
+--faktakone?
+--EXEC [dbo].[Tietoallas_Luo_Pseudonyymit] '##';
+
+
+END

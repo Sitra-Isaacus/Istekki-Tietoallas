@@ -1,0 +1,102 @@
+import argparse
+import pyodbc
+import Metatiedot_sensitiivinen
+import time
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description='Metatiedot')
+    parser.add_argument('--SERVER', required=True, help='Palvelimen nimi')
+    parser.add_argument('--LAHDE_DB', required=True, help='Kannan nimi')
+    parser.add_argument('--LAHDE_SCHEMA', required=True, help='Skeema')
+    parser.add_argument('--OSOURCE', required=True, help='Järjestelmän nimi')
+
+    args = parser.parse_args()
+    args = vars(args)
+    print(args)
+
+    server = ""
+    uid = ""
+    pwd = ""
+
+    if args['SERVER'] == '##':
+        server = '##'
+        uid = '##'
+        pwd = '##'
+    elif args['SERVER'] == '##':
+        server = '##'
+        uid = '###'
+        pwd = '###'
+
+    conn = pyodbc.connect("Driver={SQL Server};"
+                          "Server=" + server + ";"
+                          "Database=#TIETOKANTA#;"
+                          "uid=" + uid + ";pwd=" + pwd + "")
+
+    cursor = conn.cursor()
+
+    # TODO
+    # Luo metatiedot
+
+    print("Luodaan metatiedot ", args['OSOURCE'])
+    start_time = time.clock()
+
+    try:
+        cursor.execute("exec #TIETOKANTA#.dbo.ALLAS_1_Luo_Metatiedot @LAHDE_DB = '" + args['LAHDE_DB'] + "', @LAHDE_SCHEMA = '"
+                       + args['LAHDE_SCHEMA'] + "', @OSOURCE = '" + args['OSOURCE']+"'")
+        cursor.commit()
+    except Exception as e:
+        print("VIRHE", e)
+        exit()
+
+    print("Metatiedot valmis")
+    print("--- suoritusaika %s sec ---" % (time.clock() - start_time))
+    print()
+
+    # Aja parametrit ja aja sensitiivisyys-skripti
+
+    print("Luodaan parametrit ja ajetaan sensitiivisyys-skripti ")
+
+    try:
+        cursor.execute(
+            "exec #TIETOKANTA#.dbo.ALLAS_2_Luo_parametrit @LAHDE = '" + args['OSOURCE']+"'")
+        cursor.commit()
+        start_time = time.clock()
+        print(time.asctime(time.localtime(time.time())))
+
+        Metatiedot_sensitiivinen.main(conn, cursor, args['LAHDE_DB'], args['OSOURCE'])
+
+        print("--- suoritusaika %s sec ---" % (time.clock() - start_time))
+    except Exception as e:
+        print("VIRHE", e)
+        exit()
+
+    print("Valmis")
+    print()
+
+    # Luo laatutiedot
+
+    # Tarkistetaan pseudonymisoitavat sarakkeet että ei ole nulli sarakkeita
+    
+    print("Tarkistetaan vielä pseudonymisoitavat")
+    Metatiedot_sensitiivinen.tarkista_pseudonymisoitavat(conn, cursor, args['OSOURCE'])
+
+    # Luo SSIS-komennot
+    print("Luodaan SSIS-komennot ", args['OSOURCE'])
+    start_time = time.clock()
+
+    try:
+        cursor.execute(
+            "exec #TIETOKANTA#.dbo.ALLAS_4_Luo_SSIS_komennot @SOURCE = '" + args['OSOURCE'] + "'")
+        cursor.commit()
+    except Exception as e:
+        print("VIRHE", e)
+        exit()
+
+    print("SSIS-komennot valmis")
+    print("--- suoritusaika %s sec ---" % (time.clock() - start_time))
+    print()
+
+    # Luo SSIS-komennot
+    
+
+    conn.close()

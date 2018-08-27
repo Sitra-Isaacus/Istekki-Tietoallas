@@ -1,0 +1,54 @@
+USE [#TIETOKANTA#]
+GO
+/****** Object:  StoredProcedure [dbo].[ALLAS_2_Luo_parametrit]    Script Date: 21.8.2018 17.23.37 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+
+-- =============================================
+-- Author:		Mika Rönkkö
+-- Create date: 5.4.2018
+-- Description:	<Description,,>
+-- =============================================
+ALTER PROCEDURE [dbo].[ALLAS_2_Luo_parametrit] @LAHDE nvarchar(30)
+AS
+BEGIN
+-- Nogo, vaatii konffausta palvelimella
+-- EXEC master..xp_CMDShell '"C:\Users\mikaro\Desktop\SQL\hello_world.bat"'
+
+-- DECLARE @LAHDE NVARCHAR (200)
+DECLARE @PSEUDO NVARCHAR (1000)
+DECLARE @POISTA NVARCHAR (1000)
+DECLARE @SAILYTA NVARCHAR (1000)
+DECLARE @POTNRO NVARCHAR (1000)
+
+-- OTETTAVA HUOMIOON: Eli jos sarake ei ole numero ja sen pituus on vähintään 9 merkkiä, se luokitellaan sensitiiviseksi
+-- Ellei sitten tutkita kaikki arvoja hetujen varalta, niin kuin nyt on tehty
+
+-- SET @LAHDE = 'OBERON'
+
+DELETE FROM #TIETOKANTA#.dbo.Python_params WHERE LAHDE = @LAHDE
+UPDATE #TIETOKANTA#.dbo.Python_params SET AJA = NULL
+
+
+-- 4 tuodaan potilasnumeron perusteella hetu pseudonymisoitavaksi
+
+SET @POTNRO = '%potilasnro%|%potilasnumero%|PatientNumber'
+
+
+-- 2 eli pseudonymisoidaan
+SET @PSEUDO = '%hetu%|%sotu%|%henkilötunnus%|%SocSecurity%|Patientid|henkilotunnus'
+
+
+-- -1 eli säilytetään
+SET @SAILYTA = 'MAKSAJA_NIMI|%selite%|%toimipiste%|%laitos%|%yksikko%|%paadg%|TPKID|HRYHMA|PAVUST|INDATA|RESKDI|RESKPL|RESHINTA|DateTime|EnterTime|OrderNumber|Status|StringValue|Value|ValueID|VariableID|%pvm%|%aika%'
+
+-- 1 eli poistetaan
+SET @POISTA = 'Suorittajanimi|Puhelin|GSM|Lahiosoite|Kayttajatunnus|Info|Kotinumero|GSMnumero|Katuosoite|Email|KukaMuokannut|AsiakasNimi|%SUKUNI%|%ETUNI%|%KUOLINPVM%|%SYNTAIKA%|%SYNT_AIKA%|%Syntym%|%paivittaja%|%laakari%|%kirjaaja%|%toteaja%|%asettaja%|HNIMI|%muuttaja%|%tyonantaja%|%ForeNames%|%Surname%|ActorID|nimi|syntymapaiva|kuolinpaiva|oberonpotilasnro|PatientName|SplitExaminer|%Doctor%|AnswerCopy|Anamnesis|OnStartPerson|OnStartAssistant|%Statement%|%Note%|%Writer%|OtherComments|Reviewer|%User%|Consultant|Examiner|Discoverer|TreatedBy|TALLETTAJA|NIMI|SytologyAssistant|DoneBy|%antaja%|%potilaan%'
+
+
+INSERT INTO #TIETOKANTA#.dbo.Python_params(LAHDE,PSEUDO,POISTA,SAILYTA,AJA,POTNRO)
+VALUES (@LAHDE,@PSEUDO,@POISTA,@SAILYTA,'TRUE',@POTNRO)
+
+END

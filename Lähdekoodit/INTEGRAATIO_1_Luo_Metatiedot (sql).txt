@@ -1,0 +1,346 @@
+USE [Tietoallas]
+GO
+/****** Object:  StoredProcedure [dbo].[ALLAS_1_Luo_Metatiedot]    Script Date: 21.8.2018 17.22.30 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+
+-- =============================================
+-- Author:		Heikki M
+-- Create date: 11.4.2017
+-- Description:	Kutsuu itse kannassa olevaa kysely‰
+-- v2 Mika R
+-- =============================================
+
+-- EXEC ISAACUS_1_Luo_Metatiedot '##', '.DBO.','OBERON'
+
+ALTER PROCEDURE [dbo].[ALLAS_1_Luo_Metatiedot] 
+
+@LAHDE_DB NVARCHAR(100) = '##',
+@LAHDE_SCHEMA NVARCHAR(100) = '.DBO.',
+@OSOURCE NVARCHAR(100) = 'RIS'
+AS
+BEGIN
+	SET NOCOUNT ON;
+
+
+DECLARE @LAHDE_DB_ID NVARCHAR(100) = ''
+
+DELETE FROM #TIETOKANTA# WHERE ORIGINAL_SOURCE = @OSOURCE
+
+SELECT @LAHDE_DB_ID = database_id
+FROM [master].[sys].[databases]
+WHERE name = @LAHDE_DB
+
+
+
+/*Haetaan metadatat ensin temp-tauluun*/
+
+IF OBJECT_ID('tempdb.dbo.#metadatat', 'U') IS NOT NULL
+  DROP TABLE #metadatat; 
+
+CREATE TABLE #metadatat 
+(DATATABLE nvarchar(200) not null,
+DATACOLUMN nvarchar(200) not null,
+SENSITIVE INT,
+DATATYPE nvarchar(50) not null,
+IS_NULLABLE int,
+SIZE int,
+PRECISION int,
+SCALE int,
+ORIGINAL_SOURCE nvarchar(100) not null,
+DATA_OWNER nvarchar(100) not null,
+SOURCE nvarchar(100) not null,
+LOCATION_ADLS nvarchar(200) not null,
+METADATA_DATE datetime2 not null
+)
+
+
+DECLARE @OWNER NVARCHAR(20)
+BEGIN
+IF @@SERVERNAME = '#TIETOKANNAN NIMI#'
+	SET @OWNER = 'PSSHP'
+ELSE IF @@SERVERNAME = '#TIETOKANNAN NIMI#'
+	SET @OWNER = 'Kuopio'
+END
+
+
+DECLARE @query NVARCHAR(MAX) =
+'SELECT 
+	OBJECT_NAME(C.OBJECT_ID, ' + @LAHDE_DB_ID + ') AS DATATABLE, 
+	C.NAME AS DATACOLUMN, 
+	0 AS SENSITIVE,				
+	T.NAME AS DATATYPE, 
+	C.is_nullable AS IS_NULLABLE,
+	C.MAX_LENGTH AS SIZE, 
+	C.precision AS PRECISION, 
+	C.SCALE AS SCALE,
+	''' + @OSOURCE + ''' AS ORIGINAL_SOURCE,
+	''' + @OWNER + ''' AS DATA_OWNER,
+	''' + @LAHDE_DB + @LAHDE_SCHEMA + ''' + OBJECT_NAME(C.OBJECT_ID, ' + @LAHDE_DB_ID + ') AS SOURCE, 
+	''/maindatalake/staging/' +@OSOURCE+ '/' + @OWNER + '/'' + OBJECT_NAME(C.OBJECT_ID,' + @LAHDE_DB_ID + ') AS LOCATION_ADLS,
+	SYSDATETIME() AS METADATA_DATE
+FROM 
+	'+@LAHDE_DB+'.sys.COLUMNS C INNER JOIN 
+	'+@LAHDE_DB+'.sys.TYPES T
+		ON T.SYSTEM_TYPE_ID = C.SYSTEM_TYPE_ID
+
+	WHERE 
+		T.NAME <> ''SYSNAME'' '
+	
+
+	INSERT INTO #metadatat
+	execute sp_executesql @query;
+
+
+
+	/*insertti */
+
+	INSERT INTO ##.dbo.METADATA
+	(DATATABLE, DATACOLUMN, SENSITIVE, DATATYPE, IS_NULLABLE, SIZE, PRECISION, SCALE, ORIGINAL_SOURCE, DATA_OWNER, SOURCE, LOCATION_ADLS, METADATA_DATE,ORIGINAL_DB)
+
+	SELECT C.DATATABLE, C.DATACOLUMN, C.SENSITIVE, C.DATATYPE, C.IS_NULLABLE, C.SIZE, C.PRECISION, C.SCALE, C.ORIGINAL_SOURCE, C.DATA_OWNER,
+	C.[SOURCE], C.LOCATION_ADLS, C.METADATA_DATE,@LAHDE_DB AS ORIGINAL_DB
+	FROM #metadatat AS C
+	WHERE
+
+	/*voisiko t‰ss‰ m‰‰r‰t‰ tuolla @OSOURCE parametrilla mit‰ where ehtoja k‰ytet‰‰n?*/
+
+	/*t‰h‰n tapaan, eli OSOURCE m‰‰ritt‰‰ mik‰ l‰hde ja sitten ANDilla liitet‰‰n varsinainen hakuehtorimpsu*/
+	@OSOURCE = 'RIS' AND
+	(
+	--RIS
+	[DATATABLE] = 'RIS_stage2' 
+	) OR
+
+    @OSOURCE = 'OBERON' AND
+	(
+	-- OBERON
+	[DATATABLE] like 'ods_%' AND [DATATABLE] like '%_all'
+	-- OBERON poikkeukset, joissa ei ole _all -taulua 
+	OR [DATATABLE] = 'ods_henkilostomaara'
+	OR [DATATABLE] = 'ods_hoitopalaute'
+	OR [DATATABLE] = 'ods_hoitotaulukko'
+	OR [DATATABLE] = 'ods_koodisto'
+	OR [DATATABLE] = 'ods_kotikunta'
+	OR [DATATABLE] = 'ods_loma'
+	OR [DATATABLE] = 'ods_maksusitoumus'
+	OR [DATATABLE] = 'ods_muu_palvelu'
+	OR [DATATABLE] = 'ods_os_paikka'
+	OR [DATATABLE] = 'ods_os_paikkatieto'
+	OR [DATATABLE] = 'ods_pitkaaikaisdiagnoosi'
+	OR [DATATABLE] = 'ods_os_paikkatieto'
+	OR [DATATABLE] = 'ods_psyk_ph_paatos'
+	OR [DATATABLE] = 'ods_psyk_ph_pakkotoimet'
+	OR [DATATABLE] = 'ods_psykiatrian_potilas'
+	OR [DATATABLE] = 'ods_sydpot_komplikaatio'
+	OR [DATATABLE] = 'ods_sydpot_tmptyyppi'
+	OR [DATATABLE] = 'ods_vaativa_sydanpotilas'
+	OR [DATATABLE] = 'ods_varauskirja'
+	OR [DATATABLE] = 'ods_yksikko'
+	OR [DATATABLE] = 'ods_henkilo'
+	OR [DATATABLE] = 'ods_hoitokokonaisuus_historia'
+	OR [DATATABLE] = 'ods_kys_hoitoisuus_suorite'
+	OR [DATATABLE] = 'ods_kys_kunta'
+	OR [DATATABLE] = 'ods_laskutuspaatos_kaikki'
+	OR [DATATABLE] = 'TOD_ods_suoritedimensio'
+	)
+	OR
+    
+	@OSOURCE = 'INFOTOTI' AND
+	(
+	---- INFOTOTI / ORBIT
+	[DATATABLE] like 'INFO_TOTI%' and 
+	[DATATABLE] <> 'INFO_TOTITPIDE'
+	)
+	OR
+    @OSOURCE = 'KAPPA' AND
+	(
+	-- KAPPA
+	 ([DATATABLE] like 'IF_%'
+	 OR [DATATABLE] like 'KAD_%'
+	 OR [DATATABLE] like 'KI_ID%'
+	 OR [DATATABLE] like 'KO_%'
+	 OR [DATATABLE] like 'Sigma%'
+	 OR [DATATABLE] = 'Tuote_alalajit'
+	 OR [DATATABLE] = 'Tuotelajit'
+	 OR [DATATABLE] = 'EKH_RAJA'
+	 OR [DATATABLE] = 'DRG_painot'
+	 OR [DATATABLE] = 'D_Diagnoosi_ICD10'
+	 OR [DATATABLE] = 'AL_kiintio')
+	 AND [DATATABLE] not like '%backup%'
+	 )
+	 OR
+
+	 @OSOURCE = 'MULTILAB' AND
+	 (
+	 -- MULTILAB
+	 [DATATABLE] = 'Multilab_2018'
+	)
+	OR
+
+    @OSOURCE = 'CLINISOFT' AND
+	(
+	-- CLINISOFT Otetaan MIRA-loppuiset. Sis‰lt‰‰ historian, muut on ns. aktiivitauluja
+		([DATATABLE] like '%_MIRA'
+		OR
+	-- n‰kym‰t miss‰ collation vaihdettu
+		[DATATABLE] like '%_MIRAC')
+		-- Pois koska t‰st‰ on n‰kym‰
+		AND [DATATABLE] <> 'D_PatStats_MIRA'
+	)
+	OR
+    @OSOURCE = 'QPATI' AND
+	(
+	-- Qpati
+	-- Kaikki mukaan
+	[DATATABLE] <> 'SavedVersions'
+	AND [DATATABLE] not like '%sys%'
+	AND [DATATABLE] not like '%queue%'
+	AND [DATATABLE] not like '%file%'
+		
+	)
+	
+	/*Assi tomintalukujen dw-kanta*/
+	OR
+	@OSOURCE = 'ASSI_TOI' AND
+	(
+	([DATATABLE]	LIKE 'F_ODS_%' OR [DATATABLE] LIKE '%TD_kustannuspaikka%')
+	AND [DATATABLE] NOT LIKE '%backup%'
+	AND [DATATABLE] NOT LIKE '%testi%'
+	AND [DATATABLE] NOT LIKE '%_old%'
+	AND [DATATABLE] NOT LIKE '%[0-9]%'
+	)
+
+		
+	/*Assi tomintalukujen stage-kanta*/
+	OR
+	@OSOURCE = 'ASSI_TOI_STAGE' AND
+	(
+	([DATATABLE]	LIKE 'Datarivi_%')
+	AND [DATATABLE] NOT LIKE '%backup%'
+	AND [DATATABLE] NOT LIKE '%testi%'
+	AND [DATATABLE] NOT LIKE '%_old%'
+	)
+
+	/*Hilkka tiedot ##*/
+	OR
+	@OSOURCE = 'HILKKA' AND
+	(
+	([DATATABLE] LIKE 'HILKKA%')
+	AND [DATATABLE] NOT LIKE '%_old%'
+	
+	)
+
+	/*WINHIT tiedot ##*/
+	OR
+	@OSOURCE = 'WINHIT' AND
+	(
+	
+	[DATATABLE] <> 'tyhjakaynti'
+	AND [DATATABLE] <> 'kayntitaulu'
+	AND [DATATABLE] not like '%sys%'
+	AND [DATATABLE] not like '%queue%'
+	AND [DATATABLE] not like '%file%'
+	
+	)
+
+	/*##*/
+	OR
+	@OSOURCE = 'PEGASOS' AND
+	(
+	
+	[DATATABLE] = 'PGAL_KAYNNIT_AVOHILMO_KOOSTE'
+	OR [DATATABLE] = 'PGAL_KAYNNIT_SUORITUSPAIKAT'
+	OR [DATATABLE] = 'PGAL_OSASTOJAKSOT_KOOSTE'
+	OR [DATATABLE] = 'PGAL_POLIKAYNNIT_KOOSTE'
+	OR [DATATABLE] = 'PGAL_RAPORTOINTIKOODIT_KOOSTE'
+	OR [DATATABLE] = 'PGAL_SPAT_KOOSTE'
+	OR [DATATABLE] = 'PGAL_PƒIVYSTYKSEN_KƒYNNIT'
+	OR [DATATABLE] = 'PGAL_PTH_ESH_LAHETTEET_KOOSTE'
+	OR [DATATABLE] = 'PGAL_PTH_TEHDYT_LAHETTEET_KOOSTE'
+	OR [DATATABLE] = 'PGAL_TE01010_SUORITUSPAIKAT'
+	OR [DATATABLE] = 'PGAL_TE01008_TOIMIPAIKAT'
+	OR [DATATABLE] = 'PGAL_ICD10_KOOSTE'
+	OR [DATATABLE] = 'PGAL_ICPC_KOOSTE'
+	
+	)
+	OR
+	@OSOURCE = 'INTIME' AND
+	(
+	
+	[DATATABLE] = 'JORAVEGA_ORGANISAATIO_INTIME'
+	OR [DATATABLE] = 'JORAVEGA_TILIHIERARKIA_INTIME'
+	OR [DATATABLE] = 'JORAVEGA_VIENNIT_KOOSTE'
+	OR [DATATABLE] = 'TD_ALV'
+	OR [DATATABLE] = 'TD_HANKE'
+	OR [DATATABLE] = 'TD_K'
+	OR [DATATABLE] = 'TD_PALV'
+	OR [DATATABLE] = 'TD_TOI'
+	OR [DATATABLE] = 'TD_TOKO'
+	OR [DATATABLE] = 'TD_VAPU'
+	OR [DATATABLE] = 'TF_VIENTI'
+	
+	)
+
+	;
+	--OBJECT_NAME(C.OBJECT_ID, @LAHDE_DB_ID) <> 'PGAL_TE01001_ASIAKKAAT'
+
+
+	/*Lis‰t‰‰n uudet sarakkeet Metadata_sarakekuvaukset tauluun*/
+	--INSERT INTO Metadata_sarakekuvaukset (DATACOLUMN,SOURCE)
+	--SELECT m.DATACOLUMN, m.SOURCE
+	--FROM [Tietoallas].[dbo].[Metadata] AS m
+	--LEFT OUTER JOIN Metadata_sarakekuvaukset AS k ON m.DATACOLUMN = k.DATACOLUMN AND m.SOURCE = k.SOURCE
+	--WHERE k.DATACOLUMN IS NULL
+	--GROUP BY m.DATACOLUMN, m.SOURCE;
+
+	--/*Lis‰t‰‰n uudet taulut Metadata_taulukuvaukset tauluun*/
+	--INSERT INTO Metadata_taulukuvaukset (DATATABLE,SOURCE)
+	--SELECT m.DATATABLE, m.SOURCE
+	--FROM [Tietoallas].[dbo].[Metadata] AS m
+	--LEFT OUTER JOIN Metadata_taulukuvaukset AS k ON m.DATATABLE = k.DATATABLE AND m.SOURCE = k.SOURCE
+	--WHERE k.DATATABLE IS NULL
+	--GROUP BY m.DATATABLE, m.SOURCE;
+
+	/*haetaan lopuksi viel‰ rivim‰‰r‰t tauluille, k‰ytet‰‰n tietokannan sys-n‰kymi‰
+	T‰m‰ on aika nopeasti kyh‰tty, varmasti on bugeja.
+	*/
+	IF OBJECT_ID('tempdb.dbo.#row_counts', 'U') IS NOT NULL
+		DROP TABLE #row_counts; 
+
+	CREATE TABLE #row_counts
+	(SchemaName nvarchar(20),TableName nvarchar(200), TotalRowCount bigint)
+
+	DECLARE @row_count_query nvarchar(MAX) = 
+	'SELECT SCHEMA_NAME(schema_id) AS [SchemaName],
+	[Tables].name AS [TableName],
+	SUM([Partitions].[rows]) AS [TotalRowCount]
+	FROM '+ @LAHDE_DB +'.sys.tables AS [Tables]
+	JOIN '+ @LAHDE_DB +'.sys.partitions AS [Partitions]
+	ON [Tables].[object_id] = [Partitions].[object_id]
+	AND [Partitions].index_id IN ( 0, 1 )
+
+	GROUP BY SCHEMA_NAME(schema_id), [Tables].name;'
+
+	INSERT INTO #row_counts (SchemaName,TableName,TotalRowCount)
+	EXEC sp_executesql @row_count_query
+
+
+	/*p‰ivitet‰‰n rivim‰‰r‰t*/
+
+	DELETE FROM Metadata_rivim‰‰r‰t WHERE SOURCE IN (
+	SELECT m.SOURCE FROM Metadata_taulukuvaukset AS m
+	INNER JOIN #row_counts AS r ON m.DATATABLE = r.TableName);
+
+
+	INSERT INTO Metadata_rivim‰‰r‰t
+	SELECT m.DATATABLE, m.SOURCE, TotalRowCount FROM Metadata_taulukuvaukset AS m
+	INNER JOIN #row_counts AS r ON m.DATATABLE = r.TableName;
+
+
+
+
+
+END

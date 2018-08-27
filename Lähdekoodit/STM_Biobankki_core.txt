@@ -1,0 +1,99 @@
+#!/usr/bin/python3
+# !/usr/bin/env python3
+import requests
+from bson.json_util import dumps
+import argparse
+import hmac
+from hashlib import sha256
+import base64
+# import bottle
+import re
+import random
+import datetime
+import math
+import json
+import pandas as pd
+from sqlalchemy import create_engine
+
+
+"""
+
+./core-api-client.py --uri https://core-api.example.org/time --method GET --clientid 1234 --secret SECRET
+
+"""
+
+writecon = create_engine(
+    'mssql+pyodbc://##:##@#SQL-PALVELIN#:1433/#KANTA#?driver=SQL+Server+Native+Client+11.0')
+
+"""
+  creates HMAC SHA256 signature for the given request
+"""
+
+
+def sign_request(msg, key):
+    return base64.encodestring(hmac.new(str.encode(key), str.encode(msg), sha256).digest()).decode('utf-8').rstrip('\n')
+
+
+def make_tstamp():
+    now = datetime.datetime.now()
+    return math.floor(now.timestamp())
+
+
+def make_auth_header(args):
+    auth = {
+        "ts": make_tstamp(),
+        "nonce": int(random.getrandbits(32)),
+        "mac": "",
+        "header": ""}
+
+    message = "{};{};{}".format(args['clientid'], auth['nonce'], auth['ts'])
+    auth['mac'] = sign_request(msg=message, key=args['secret'])
+    auth['header'] = "MAC id={},nonce={},ts={},mac={}".format(args['clientid'], auth['nonce'], auth['ts'], auth['mac'])
+    return auth
+
+
+def main():
+
+    parser = argparse.ArgumentParser(usage='%(prog)s ', description='rest client test')
+    parser.add_argument("--host", default="localhost")
+    parser.add_argument("--port", default="443")
+    parser.add_argument("--protocol", default="https")
+    parser.add_argument("--secret", default="")  #
+    parser.add_argument("--clientid", default="")  # txx something
+
+    parser.add_argument("--uri", default="https:XXXX")
+    parser.add_argument("--method", default="POST")
+
+    parser.add_argument("--data", default='{"scid": ""}',
+                        required=False)  # add collectionID
+    parser.add_argument("--verifycert", default=False)
+
+    args = parser.parse_args()
+
+    authz = make_auth_header({"clientid": args.clientid, "secret": args.secret})
+
+    headers = {"Authorization": authz['header']}
+
+    #   headers["Content-Type"] ='application/json; charset=utf-8'
+    #   requests api docs
+    #   http://docs.python-requests.org/en/master/api/
+    print("headers: ")
+    print(headers)
+    print("")
+    if (args.method == "GET"):
+
+        r = requests.get(args.uri, headers=headers, verify=False)
+        df = pd.DataFrame.from_dict(json.loads(r.text))
+        df = df[['text']]
+        df.to_sql('CORE_consentstatus', writecon, if_exists='replace', index=None)
+
+    elif (args.method == "POST"):
+
+        r = requests.post(args.uri, headers=headers, json=json.loads(args.data), verify=args.verifycert)
+        df = pd.DataFrame.from_dict(json.loads(r.text))
+        df = df[['id', 'ssn', 'status']]
+        df.to_sql('CORE_collectionlist_2', writecon, if_exists='replace', index=None)
+
+
+if __name__ == '__main__':
+    main()
